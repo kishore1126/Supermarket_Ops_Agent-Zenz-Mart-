@@ -58,22 +58,30 @@ def format_daily_close_message(close_data: dict) -> str:
     total_tax = close_data.get("total_tax", 0.0)
     pay = close_data.get("payment_breakdown", {})
 
+    upi_str = f"₹{pay.get('UPI', 0.0):.2f}"
+    cash_str = f"₹{pay.get('CASH', 0.0):.2f}"
+    card_str = f"₹{pay.get('CARD', 0.0):.2f}"
+    khata_str = f"₹{pay.get('KHATA', 0.0):.2f}"
+    sales_str = f"₹{total_sales:.2f}"
+    avg_str = f"₹{avg_ticket:.2f}"
+    tax_str = f"₹{total_tax:.2f}"
+
     lines = [
         f"📊 *DAILY STORE CLOSE — {date_str}*",
         "",
         "```",
         f"{'Metric':<24} {'Value':>14}",
         "-" * 40,
-        f"{'Total Revenue:':<24} {'₹' + f'{total_sales:.2f}':>14}",
+        f"{'Total Revenue:':<24} {sales_str:>14}",
         f"{'Total Invoices Cut:':<24} {str(bills):>14}",
-        f"{'Average Ticket Size:':<24} {'₹' + f'{avg_ticket:.2f}':>14}",
-        f"{'Total GST Collected:':<24} {'₹' + f'{total_tax:.2f}':>14}",
+        f"{'Average Ticket Size:':<24} {avg_str:>14}",
+        f"{'Total GST Collected:':<24} {tax_str:>14}",
         "-" * 40,
         "PAYMENT BREAKDOWN:",
-        f"  • UPI:                 {'₹' + f'{pay.get('UPI', 0.0):.2f}':>14}",
-        f"  • Cash:                {'₹' + f'{pay.get('CASH', 0.0):.2f}':>14}",
-        f"  • Card:                {'₹' + f'{pay.get('CARD', 0.0):.2f}':>14}",
-        f"  • Khata (Credit):      {'₹' + f'{pay.get('KHATA', 0.0):.2f}':>14}",
+        f"  • UPI:                 {upi_str:>14}",
+        f"  • Cash:                {cash_str:>14}",
+        f"  • Card:                {card_str:>14}",
+        f"  • Khata (Credit):      {khata_str:>14}",
         "```",
     ]
 

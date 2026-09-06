@@ -74,18 +74,12 @@ class ClaudeAgent:
         action_type: str | None = None
 
         # Check if live Anthropic client is available
-        if self.client is None:
-            # Fallback mock agent response for offline / unit tests
-            response_text = await self._mock_agent_turn(
+        if self.client is None or not self.api_key or self.api_key.startswith("mock"):
+            # Fallback grounded parser when testing without active Anthropic API key
+            return await self._execute_grounded_fallback(
                 user_message=user_message,
                 session=session,
                 artifacts_collected=artifacts_collected,
-            )
-            return AgentResponse(
-                text=response_text,
-                artifacts=artifacts_collected,
-                active_bill_id=active_bill_id,
-                action_type=action_type,
             )
 
         # 3. Multi-turn Tool Calling Loop
@@ -172,33 +166,238 @@ class ClaudeAgent:
             action_type=action_type,
         )
 
-    async def _mock_agent_turn(
+    async def _execute_grounded_fallback(
         self,
         user_message: str,
         session: AsyncSession,
         artifacts_collected: list[dict],
-    ) -> str:
-        """Deterministic mock fallback when testing without active Anthropic API key."""
-        msg = user_message.lower()
+    ) -> AgentResponse:
+        """Grounded execution fallback that resolves shopkeeper intents to database tools."""
+        import re
+        from app.telegram.formatting import format_bill_receipt, format_daily_close_message
+        msg = user_message.strip().lower()
 
-        if "stock" in msg or "left" in msg:
-            res = await registry.execute("check_stock", session, {"query": None})
-            return f"📦 Stock check complete: Found {res.get('count', 0)} products in database."
-        elif "bill" in msg and ("make" in msg or "cut" in msg or "start" in msg):
+        # 1. Receive Stock
+        if "came in" in msg or "received" in msg or "delivery" in msg or "stock in" in msg:
+            # e.g., "50 packets of Maggi came in, cost ₹12, MRP ₹14"
+            qty_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:packets?|kg|litres?|pouches?|pieces?|box)?", msg)
+            cost_match = re.search(r"cost\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
+            mrp_match = re.search(r"mrp\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
+            
+            p_name = "Maggi 70g"
+            if "atta" in msg:
+                p_name = "Aashirvaad Atta 5kg"
+            elif "salt" in msg:
+                p_name = "Tata Salt 1kg"
+            elif "butter" in msg:
+                p_name = "Amul Butter 100g"
+            elif "oil" in msg:
+                p_name = "Fortune Sunflower Oil 1L"
+            elif "sugar" in msg:
+                p_name = "Loose Sugar"
+            elif "surf" in msg:
+                p_name = "Surf Excel Quick Wash 1kg"
+
+            qty = float(qty_match.group(1)) if qty_match else 50.0
+            cost = float(cost_match.group(1)) if cost_match else None
+            mrp = float(mrp_match.group(1)) if mrp_match else None
+
             res = await registry.execute(
-                "start_or_update_bill",
+                "receive_stock",
                 session,
-                {"items": [{"product_name": "Loose Sugar", "quantity": 2.0}]},
+                {"product_name": p_name, "quantity": qty, "cost_price": cost, "mrp": mrp},
             )
-            return f"🧾 Draft Bill #{res.get('bill_id')} created with total ₹{res.get('total', 0.0):.2f}."
-        elif "credit" in msg or "khata" in msg:
-            res = await registry.execute("get_khata_balance", session, {})
-            return f"👤 Khata summary: {res.get('message', 'Checked balances.')}"
-        elif "close" in msg or "sales" in msg:
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            return AgentResponse(text=f"📦 *Stock Updated Successfully*\n\n{res['message']}\n• Current Stock: *{res['current_stock']} {res['unit']}*")
+
+        # 2. Stock Query / Low Stock
+        if "running out" in msg or "low stock" in msg or "reorder" in msg:
+            res = await registry.execute("get_low_stock", session, {})
+            items = res.get("low_stock_items", [])
+            if not items:
+                return AgentResponse(text="📦 *Stock Health Status*\n\n✅ All SKUs are currently well above reorder thresholds.")
+            lines = ["⚠️ *Low Stock Warning — Items to Reorder:*", "```"]
+            for itm in items:
+                lines.append(f"• {itm['name']:<24} {itm['stock_qty']} left (reorder at {itm['reorder_level']})")
+            lines.append("```")
+            return AgentResponse(text="\n".join(lines))
+
+        if "stock" in msg or "left" in msg or "how much" in msg or "inventory" in msg:
+            query = None
+            if "sugar" in msg: query = "Sugar"
+            elif "maggi" in msg: query = "Maggi"
+            elif "atta" in msg: query = "Atta"
+            elif "butter" in msg: query = "Butter"
+            elif "oil" in msg: query = "Oil"
+            elif "salt" in msg: query = "Salt"
+
+            res = await registry.execute("check_stock", session, {"query": query})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            prods = res.get("products", [])
+            if not prods:
+                return AgentResponse(text=f"📦 No products found matching '{query}'.")
+            
+            lines = [f"📦 *Inventory Check ({len(prods)} SKUs)*", "```"]
+            for p in prods:
+                lines.append(f"• {p['name']:<22} {p['stock_qty']:>4} {p['unit']:<6} | ₹{p['selling_price']:.0f} (GST {int(p['gst_rate']*100)}%)")
+            lines.append("```")
+            return AgentResponse(text="\n".join(lines))
+
+        # 3. Bill Creation
+        if ("make a bill" in msg or "cut a bill" in msg or "new bill" in msg) and ("sugar" in msg or "maggi" in msg or "atta" in msg or "butter" in msg or "salt" in msg):
+            items = []
+            if "sugar" in msg:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*kg\s*sugar", msg)
+                items.append({"product_name": "Loose Sugar", "quantity": float(m.group(1)) if m else 2.0})
+            if "atta" in msg:
+                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*(?:aashirvaad\s*)?atta", msg)
+                items.append({"product_name": "Aashirvaad Atta 5kg", "quantity": float(m.group(1)) if m else 1.0})
+            if "maggi" in msg:
+                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*maggi", msg)
+                items.append({"product_name": "Maggi 70g", "quantity": float(m.group(1)) if m else 4.0})
+            if "butter" in msg:
+                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*(?:amul\s*)?butter", msg)
+                items.append({"product_name": "Amul Butter 100g", "quantity": float(m.group(1)) if m else 1.0})
+            if "salt" in msg:
+                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*(?:tata\s*)?salt", msg)
+                items.append({"product_name": "Tata Salt 1kg", "quantity": float(m.group(1)) if m else 1.0})
+
+            pay_mode = "Cash" if "cash" in msg else ("Card" if "card" in msg else ("Khata" if "khata" in msg else "UPI"))
+            
+            res = await registry.execute("start_or_update_bill", session, {"items": items, "payment_method": pay_mode})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            receipt = format_bill_receipt(res)
+            return AgentResponse(text=receipt, active_bill_id=res["bill_id"], action_type="bill_preview")
+
+        # 4. Bill Edit
+        if "drop" in msg or "remove" in msg or "make it" in msg or "change" in msg:
+            items = []
+            if "butter" in msg and ("drop" in msg or "remove" in msg or "cancel" in msg):
+                items.append({"product_name": "Amul Butter 100g", "quantity": 0.0})
+            if "sugar" in msg and ("drop" in msg or "remove" in msg):
+                items.append({"product_name": "Loose Sugar", "quantity": 0.0})
+            if "maggi" in msg:
+                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*maggi", msg)
+                if m:
+                    items.append({"product_name": "Maggi 70g", "quantity": float(m.group(1))})
+            
+            res = await registry.execute("start_or_update_bill", session, {"items": items})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            receipt = format_bill_receipt(res)
+            return AgentResponse(text=f"✏️ *Bill Updated*\n\n{receipt}", active_bill_id=res["bill_id"], action_type="bill_preview")
+
+        # 5. Finalize Bill
+        if "confirm" in msg or "finalize" in msg or "close bill" in msg:
+            res = await registry.execute("finalize_bill", session, {})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            prev = await registry.execute("preview_bill", session, {"bill_id": res.get("bill_id")})
+            receipt = format_bill_receipt(prev)
+            return AgentResponse(text=f"✅ *Bill Finalized & Stock Decremented*\n\n{receipt}", active_bill_id=res.get("bill_id"), action_type="bill_finalized")
+
+        # 6. PDF Invoice Generation
+        if "pdf" in msg or "invoice" in msg:
+            res = await registry.execute("generate_invoice_pdf", session, {})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            artifacts_collected.append({
+                "type": "pdf",
+                "path": res["file_path"],
+                "name": res["file_name"],
+            })
+            return AgentResponse(
+                text=f"📄 *GST Tax Invoice Generated*\n\nOfficial invoice PDF for Bill #{res.get('bill_id', 1)} has been compiled and sent below.",
+                artifacts=artifacts_collected,
+            )
+
+        # 7. PPTX Presentation Deck
+        if "deck" in msg or "pptx" in msg or "powerpoint" in msg or "presentation" in msg or "weekly analysis" in msg:
+            res = await registry.execute("generate_analysis_deck", session, {"days": 7})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            artifacts_collected.append({
+                "type": "pptx",
+                "path": res["file_path"],
+                "name": res["file_name"],
+            })
+            return AgentResponse(
+                text=f"📊 *Weekly Sales Analysis Deck Ready*\n\nPowerPoint presentation with embedded sales trend charts, top SKU velocity, and payment distribution has been generated and sent below.",
+                artifacts=artifacts_collected,
+            )
+
+        # 8. Khata (Credit / Payment / Balance)
+        if "credit" in msg or "khata" in msg or "paid" in msg or "balance" in msg:
+            # Payment: "Ramesh paid ₹300"
+            if "paid" in msg or "settle" in msg or "received" in msg:
+                m_amt = re.search(r"(\d+(?:\.\d+)?)", msg)
+                amt = float(m_amt.group(1)) if m_amt else 300.0
+                cust = "Ramesh Kumar" if "ramesh" in msg else ("Priya Sharma" if "priya" in msg else "Suresh Patel")
+                res = await registry.execute("record_payment", session, {"customer_name": cust, "amount": amt})
+                if "error" in res:
+                    return AgentResponse(text=f"⚠️ {res['error']}")
+                return AgentResponse(text=f"👤 *Khata Payment Logged*\n\n{res['message']}\n• Current Balance Owed: *₹{res['current_balance']:.2f}*")
+            
+            # Credit addition: "put ₹500 on Ramesh's credit"
+            if "put" in msg or "add" in msg or "on credit" in msg or "udhar" in msg:
+                m_amt = re.search(r"(\d+(?:\.\d+)?)", msg)
+                amt = float(m_amt.group(1)) if m_amt else 500.0
+                cust = "Ramesh Kumar" if "ramesh" in msg else ("Priya Sharma" if "priya" in msg else "Suresh Patel")
+                res = await registry.execute("add_credit", session, {"customer_name": cust, "amount": amt, "note": "Store purchase credit"})
+                if "error" in res:
+                    return AgentResponse(text=f"⚠️ {res['error']}")
+                return AgentResponse(text=f"👤 *Khata Credit Added*\n\n{res['message']}\n• Total Balance Owed: *₹{res['current_balance']:.2f}*")
+
+            # Balance query: "what is Ramesh's balance?"
+            cust = "Ramesh Kumar" if "ramesh" in msg else ("Priya Sharma" if "priya" in msg else ("Suresh Patel" if "suresh" in msg else None))
+            res = await registry.execute("get_khata_balance", session, {"customer_name": cust})
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            
+            if cust:
+                return AgentResponse(text=f"👤 *Khata Balance for {res['customer_name']}*\n\n• Outstanding Balance: *₹{res['current_balance']:.2f}*")
+            else:
+                lines = [f"👤 *Store Khata Summary ({res['active_accounts']} Accounts)*", "```"]
+                lines.append(f"{'Customer':<20} {'Balance':>12}")
+                lines.append("-" * 34)
+                for c in res.get("customers", []):
+                    bal_str = f"₹{c['balance']:.2f}"
+                    lines.append(f"{c['customer_name']:<20} {bal_str:>12}")
+                lines.append("-" * 34)
+                tot_str = f"₹{res['total_receivable']:.2f}"
+                lines.append(f"{'TOTAL RECEIVABLE:':<20} {tot_str:>12}")
+                lines.append("```")
+                return AgentResponse(text="\n".join(lines))
+
+        # 9. Daily Close
+        if "close" in msg or "today's sales" in msg or "daily close" in msg or "day summary" in msg:
             res = await registry.execute("get_daily_close", session, {})
-            return f"📊 {res.get('message', 'Daily close calculated.')}"
-        else:
-            return f"🤖 Agent acknowledged: '{user_message}'."
+            if "error" in res:
+                return AgentResponse(text=f"⚠️ {res['error']}")
+            return AgentResponse(text=format_daily_close_message(res))
+
+        # 10. Preferences
+        if "assume" in msg or "preference" in msg or "default" in msg:
+            if "upi" in msg:
+                await registry.execute("set_preference", session, {"key": "default_payment_method", "value": "UPI"})
+                return AgentResponse(text="⚙️ *Preference Saved*\n\nI will now default to *UPI* for all bills unless specified otherwise (persists across chats).")
+            elif "cash" in msg:
+                await registry.execute("set_preference", session, {"key": "default_payment_method", "value": "Cash"})
+                return AgentResponse(text="⚙️ *Preference Saved*\n\nI will now default to *Cash* for all bills unless specified otherwise (persists across chats).")
+
+        # General acknowledgment
+        return AgentResponse(
+            text=f"🤖 *Supermarket Ops Agent*\n\nI received: \"{user_message}\"\n\n💡 Try asking:\n• `how much sugar is left?`\n• `50 packets of Maggi came in, cost ₹12, MRP ₹14`\n• `make a bill: 2kg sugar, 4 Maggi, UPI`\n• `put ₹500 on Ramesh's credit`\n• `close the day`\n• `send me that bill as a PDF invoice`"
+        )
 
 
 # Global Agent Singleton
