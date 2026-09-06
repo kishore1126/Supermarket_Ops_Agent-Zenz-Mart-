@@ -13,10 +13,17 @@ from app.documents.invoice_pdf import generate_invoice_pdf
 from app.documents.analysis_pptx import generate_analysis_deck
 
 
+from typing import Literal
+
+
 class GenerateInvoicePdfInput(BaseModel):
     bill_id: int | None = Field(
         None,
-        description="ID of the finalized or preview bill to render as a PDF invoice. If None, uses latest bill.",
+        description="Optional specific bill ID (e.g. 1, 2, 4) if requested.",
+    )
+    order: Literal["first", "last", "specific"] = Field(
+        "last",
+        description="Selector order: 'first' (or earliest/oldest), 'last' (or latest/most recent/previous), or 'specific' if a bill_id is provided.",
     )
 
 
@@ -29,18 +36,23 @@ class GenerateAnalysisDeckInput(BaseModel):
 
 @registry.register(
     name="generate_invoice_pdf",
-    description="Generate a clean, GST-compliant PDF invoice document for a bill to send to customer or owner.",
+    description="Generate a clean, GST-compliant PDF invoice document for a bill (first, last/most recent, or specific bill ID).",
     schema=GenerateInvoicePdfInput,
 )
 async def generate_invoice_pdf_tool(
     session: AsyncSession,
     bill_id: int | None = None,
+    order: str = "last",
     **kwargs,
 ) -> dict:
     try:
-        bill_data = await billing_service.preview_bill(session, bill_id=bill_id)
-        if "error" in bill_data or bill_data.get("status") == "NO_ACTIVE_DRAFT":
-            return {"error": "Could not find a valid bill to generate invoice for."}
+        bill = await billing_service.get_bill_by_selector(session, bill_id=bill_id, order=order)
+        if not bill:
+            return {"error": f"Could not find any bill matching selector order='{order}', bill_id={bill_id}."}
+
+        bill_data = await billing_service.preview_bill(session, bill_id=bill.id)
+        if "error" in bill_data:
+            return {"error": f"Error loading bill #{bill.id}: {bill_data['error']}"}
 
         # Fetch shop details from preferences
         shop_prefs = await pref_service.get_all_preferences(session)
@@ -50,13 +62,15 @@ async def generate_invoice_pdf_tool(
             shop_info=shop_prefs,
         )
 
+        date_str = bill_data.get("created_at", "")[:10]
         return {
             "success": True,
             "bill_id": bill_data["bill_id"],
             "file_path": pdf_path,
             "file_name": Path(pdf_path).name,
             "total": bill_data["total"],
-            "message": f"Generated GST Tax Invoice PDF for Bill #{bill_data['bill_id']} ({Path(pdf_path).name})."
+            "created_at": date_str,
+            "message": f"Generated GST Tax Invoice PDF for Bill #{bill_data['bill_id']} dated {date_str} ({Path(pdf_path).name})."
         }
     except Exception as e:
         return {"error": f"Failed to generate invoice PDF: {str(e)}"}

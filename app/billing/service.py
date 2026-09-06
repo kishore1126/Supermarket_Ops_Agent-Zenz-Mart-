@@ -33,6 +33,28 @@ async def get_bill_by_id(session: AsyncSession, bill_id: int) -> Bill | None:
     return res.scalar_one_or_none()
 
 
+async def get_bill_by_selector(
+    session: AsyncSession,
+    bill_id: int | None = None,
+    order: str = "last",
+) -> Bill | None:
+    """Retrieve bill by specific ID, earliest/first, or latest/last."""
+    if bill_id is not None:
+        return await get_bill_by_id(session, bill_id)
+
+    stmt = select(Bill).options(selectinload(Bill.items), selectinload(Bill.customer))
+    
+    clean_order = (order or "last").strip().lower()
+    if clean_order in ["first", "earliest", "oldest"]:
+        stmt = stmt.order_by(Bill.id.asc(), Bill.created_at.asc())
+    else:
+        stmt = stmt.order_by(Bill.id.desc(), Bill.created_at.desc())
+
+    stmt = stmt.limit(1)
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
+
+
 async def get_latest_draft_bill(session: AsyncSession) -> Bill | None:
     """Retrieve the most recent open draft bill with loaded items."""
     stmt = (
@@ -198,13 +220,32 @@ async def preview_bill(
 
     _recalculate_bill_totals(bill)
 
-    items_list = [
-        {
+    # Check stock levels for all products on the bill
+    product_ids = [item.product_id for item in bill.items]
+    stock_map = {}
+    if product_ids:
+        p_stmt = select(Product).where(Product.id.in_(product_ids))
+        p_res = await session.execute(p_stmt)
+        stock_map = {p.id: p.stock_qty for p in p_res.scalars().all()}
+
+    warnings = []
+    items_list = []
+    for item in bill.items:
+        avail_stock = stock_map.get(item.product_id, 0.0)
+        is_oversell = item.quantity > avail_stock
+        if is_oversell and bill.status == BillStatus.DRAFT:
+            warnings.append(
+                f"⚠️ Stock Alert: Requested {item.quantity} {item.unit} of '{item.product_name}', but only {avail_stock} {item.unit} in stock."
+            )
+
+        items_list.append({
             "id": item.id,
             "product_id": item.product_id,
             "product_name": item.product_name,
             "unit": item.unit,
             "quantity": item.quantity,
+            "available_stock": avail_stock,
+            "is_oversell": is_oversell,
             "unit_price": item.unit_price,
             "gst_rate": item.gst_rate,
             "gst_rate_pct": f"{int(item.gst_rate * 100)}%",
@@ -212,9 +253,7 @@ async def preview_bill(
             "taxable_value": item.taxable_value,
             "tax_amount": item.tax_amount,
             "line_total": item.line_total,
-        }
-        for item in bill.items
-    ]
+        })
 
     return {
         "bill_id": bill.id,
@@ -230,6 +269,8 @@ async def preview_bill(
         "total_tax": round(bill.cgst + bill.sgst, 2),
         "round_off": bill.round_off,
         "total": bill.total,
+        "warnings": warnings,
+        "has_oversell_warning": len(warnings) > 0,
         "created_at": bill.created_at.isoformat(),
     }
 
