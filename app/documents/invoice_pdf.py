@@ -7,6 +7,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch, mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable,
     KeepTogether,
@@ -20,7 +22,7 @@ from reportlab.platypus import (
 from app.config import settings
 
 
-# Design Palette (Geo/Zenz Modern Minimalist Aesthetic)
+# Design Palette (Zenz Modern Minimalist Aesthetic)
 CYAN_ACCENT = colors.HexColor("#00C2E8")
 CYAN_LIGHT = colors.HexColor("#F0FAFC")
 DARK_SLATE = colors.HexColor("#0F172A")
@@ -29,6 +31,27 @@ LIGHT_MUTED = colors.HexColor("#64748B")
 BORDER_GREY = colors.HexColor("#E2E8F0")
 CARD_BG = colors.HexColor("#F8FAFC")
 WHITE = colors.HexColor("#FFFFFF")
+
+
+def _init_fonts() -> tuple[str, str, str]:
+    """Register TrueType Unicode fonts supporting the Indian Rupee sign (₹)."""
+    font_candidates = [
+        ("C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf"),
+        ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
+        ("C:/Windows/Fonts/calibri.ttf", "C:/Windows/Fonts/calibrib.ttf"),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ]
+
+    for regular_path, bold_path in font_candidates:
+        if os.path.exists(regular_path) and os.path.exists(bold_path):
+            try:
+                pdfmetrics.registerFont(TTFont("ZenzFont", regular_path))
+                pdfmetrics.registerFont(TTFont("ZenzFont-Bold", bold_path))
+                return "ZenzFont", "ZenzFont-Bold", "₹ "
+            except Exception:
+                continue
+
+    return "Helvetica", "Helvetica-Bold", "Rs. "
 
 
 def generate_invoice_pdf(
@@ -57,6 +80,8 @@ def generate_invoice_pdf(
         target_file = Path(output_path)
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
+    font_reg, font_bold, currency = _init_fonts()
+
     doc = SimpleDocTemplate(
         str(target_file),
         pagesize=A4,
@@ -68,14 +93,14 @@ def generate_invoice_pdf(
 
     styles = getSampleStyleSheet()
 
-    # Typography
+    # Typography configured with Unicode Rupee font
     brand_style = ParagraphStyle(
         "BrandTitle",
         parent=styles["Heading1"],
         fontSize=20,
         leading=24,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     subtitle_style = ParagraphStyle(
         "BrandSubtitle",
@@ -83,7 +108,7 @@ def generate_invoice_pdf(
         fontSize=7.5,
         leading=10,
         textColor=LIGHT_MUTED,
-        fontName="Helvetica",
+        fontName=font_reg,
     )
     meta_label = ParagraphStyle(
         "MetaLabel",
@@ -91,7 +116,7 @@ def generate_invoice_pdf(
         fontSize=7,
         leading=9,
         textColor=CYAN_ACCENT,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     meta_val = ParagraphStyle(
         "MetaVal",
@@ -99,7 +124,7 @@ def generate_invoice_pdf(
         fontSize=10,
         leading=13,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     section_heading = ParagraphStyle(
         "SectionHeading",
@@ -107,7 +132,7 @@ def generate_invoice_pdf(
         fontSize=9,
         leading=11,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     qty_style = ParagraphStyle(
         "QtyStyle",
@@ -115,7 +140,7 @@ def generate_invoice_pdf(
         fontSize=9.5,
         leading=12,
         textColor=CYAN_ACCENT,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     item_desc_style = ParagraphStyle(
         "ItemDescStyle",
@@ -123,15 +148,7 @@ def generate_invoice_pdf(
         fontSize=9,
         leading=12,
         textColor=DARK_SLATE,
-        fontName="Helvetica",
-    )
-    item_meta_style = ParagraphStyle(
-        "ItemMetaStyle",
-        parent=styles["Normal"],
-        fontSize=7,
-        leading=9,
-        textColor=LIGHT_MUTED,
-        fontName="Helvetica",
+        fontName=font_reg,
     )
     price_style = ParagraphStyle(
         "PriceStyle",
@@ -139,7 +156,7 @@ def generate_invoice_pdf(
         fontSize=9.5,
         leading=12,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         alignment=2,
     )
     summary_label = ParagraphStyle(
@@ -148,7 +165,7 @@ def generate_invoice_pdf(
         fontSize=8.5,
         leading=12,
         textColor=LIGHT_MUTED,
-        fontName="Helvetica",
+        fontName=font_reg,
     )
     summary_val = ParagraphStyle(
         "SummaryVal",
@@ -156,7 +173,7 @@ def generate_invoice_pdf(
         fontSize=8.5,
         leading=12,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         alignment=2,
     )
     total_label_style = ParagraphStyle(
@@ -165,7 +182,7 @@ def generate_invoice_pdf(
         fontSize=13,
         leading=16,
         textColor=CYAN_ACCENT,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
     )
     total_val_style = ParagraphStyle(
         "TotalVal",
@@ -173,7 +190,7 @@ def generate_invoice_pdf(
         fontSize=14,
         leading=17,
         textColor=CYAN_ACCENT,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         alignment=2,
     )
     thank_you_style = ParagraphStyle(
@@ -182,7 +199,7 @@ def generate_invoice_pdf(
         fontSize=9,
         leading=11,
         textColor=DARK_SLATE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         alignment=1,
     )
     badge_btn_style = ParagraphStyle(
@@ -191,7 +208,7 @@ def generate_invoice_pdf(
         fontSize=8.5,
         leading=10,
         textColor=WHITE,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         alignment=1,
     )
     pill_text = ParagraphStyle(
@@ -200,20 +217,21 @@ def generate_invoice_pdf(
         fontSize=7,
         leading=9,
         textColor=LIGHT_MUTED,
-        fontName="Helvetica",
+        fontName=font_reg,
         alignment=1,
     )
 
     elements = []
 
-    # 1. Top Dual-Tone Accent Bar (Left 70% Cyan, Right 30% Dark Slate)
-    bar_data = [["", ""]]
-    bar_table = Table(bar_data, colWidths=[5.0 * inch, 2.0 * inch], rowHeights=[3.5])
+    # 1. Full Blue Top Accent Bar (100% Solid Cyan Blue)
+    bar_data = [[""]]
+    bar_table = Table(bar_data, colWidths=[7.0 * inch], rowHeights=[4.0])
     bar_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, 0), CYAN_ACCENT),
-        ("BACKGROUND", (1, 0), (1, 0), MEDIUM_SLATE),
+        ("BACKGROUND", (0, 0), (-1, -1), CYAN_ACCENT),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
     elements.append(bar_table)
     elements.append(Spacer(1, 14))
@@ -304,7 +322,6 @@ def generate_invoice_pdf(
         q_val = item["quantity"]
         q_str = f"{int(q_val)}" if q_val == int(q_val) else f"{q_val}"
         
-        # Product name and optional GST details
         p_name = item["product_name"]
         gst_pct = int(item.get("gst_rate", 0) * 100)
         hsn = item.get("hsn_code", "0000")
@@ -312,7 +329,7 @@ def generate_invoice_pdf(
         
         desc_para = Paragraph(f"<b>{p_name}</b><br/>{meta_sub}", item_desc_style)
         qty_para = Paragraph(q_str, qty_style)
-        price_para = Paragraph(f"₹{item.get('line_total', 0.0):.2f}", price_style)
+        price_para = Paragraph(f"{currency}{item.get('line_total', 0.0):.2f}", price_style)
         
         item_rows.append([qty_para, desc_para, price_para])
 
@@ -326,7 +343,7 @@ def generate_invoice_pdf(
     elements.append(items_table)
     elements.append(Spacer(1, 14))
 
-    # 6. Summary & Totals Box
+    # 6. Summary & Totals Box with Continuous Full-Width Cyan Divider
     subtotal = bill_data.get("subtotal", 0.0)
     cgst = bill_data.get("cgst", 0.0)
     sgst = bill_data.get("sgst", 0.0)
@@ -334,36 +351,35 @@ def generate_invoice_pdf(
     round_off = bill_data.get("round_off", 0.0)
     final_total = bill_data.get("total", 0.0)
 
-    round_sign = f"+₹{round_off:.2f}" if round_off >= 0 else f"-₹{abs(round_off):.2f}"
+    round_sign = f"+{currency}{round_off:.2f}" if round_off >= 0 else f"-{currency}{abs(round_off):.2f}"
 
     summary_rows = [
         [
             Paragraph("Subtotal", summary_label),
-            Paragraph(f"₹{subtotal:.2f}", summary_val),
+            Paragraph(f"{currency}{subtotal:.2f}", summary_val),
         ],
         [
             Paragraph("Tax (GST Breakup: CGST + SGST)", summary_label),
-            Paragraph(f"₹{total_tax:.2f}", summary_val),
+            Paragraph(f"{currency}{total_tax:.2f}", summary_val),
         ],
         [
             Paragraph("Round Off Adjustment", summary_label),
             Paragraph(round_sign, summary_val),
         ],
         [
-            HRFlowable(width="100%", thickness=1.5, color=CYAN_ACCENT, spaceAfter=2, spaceBefore=2),
-            HRFlowable(width="100%", thickness=1.5, color=CYAN_ACCENT, spaceAfter=2, spaceBefore=2),
-        ],
-        [
             Paragraph("TOTAL", total_label_style),
-            Paragraph(f"₹{final_total:.2f}", total_val_style),
+            Paragraph(f"{currency}{final_total:.2f}", total_val_style),
         ],
     ]
 
     summary_card = Table(summary_rows, colWidths=[5.2 * inch, 1.5 * inch])
     summary_card.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -2), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -2), 4),
+        ("TOPPADDING", (0, -1), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.5, CYAN_ACCENT),
         ("LEFTPADDING", (0, 0), (-1, -1), 12),
         ("RIGHTPADDING", (0, 0), (-1, -1), 12),
     ]))
@@ -379,7 +395,7 @@ def generate_invoice_pdf(
         ],
         [
             Paragraph("AMOUNT PAID", ParagraphStyle("P3", parent=summary_label, fontSize=7.5)),
-            Paragraph(f"₹{final_total:.2f}", ParagraphStyle("P4", parent=summary_val, fontSize=8.5, textColor=DARK_SLATE)),
+            Paragraph(f"{currency}{final_total:.2f}", ParagraphStyle("P4", parent=summary_val, fontSize=8.5, textColor=DARK_SLATE)),
         ],
     ]
     pay_table = Table(pay_data, colWidths=[4.8 * inch, 1.9 * inch])
@@ -445,7 +461,7 @@ def generate_invoice_pdf(
     # Sub-footer tagline
     tagline = Paragraph(
         f"{shop['name'].upper()} • MODERN GROCERY EXPERIENCE • GSTIN: {shop['gstin']} • EST. 2026",
-        ParagraphStyle("SubFooter", parent=styles["Normal"], fontSize=6.5, textColor=LIGHT_MUTED, alignment=1),
+        ParagraphStyle("SubFooter", parent=styles["Normal"], fontSize=6.5, textColor=LIGHT_MUTED, fontName=font_reg, alignment=1),
     )
     elements.append(tagline)
 
