@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str = "sqlite+aiosqlite:///:memory:"
 
     # Shop Defaults
-    DEFAULT_SHOP_NAME: str = "Maa Durga Kirana Store"
+    DEFAULT_SHOP_NAME: str = "Zenz Mart"
     DEFAULT_SHOP_GSTIN: str = "27AABCM1234F1Z8"
     DEFAULT_SHOP_ADDRESS: str = "Shop #4, Market Road, Sector 14, Pune, Maharashtra 411044"
     DEFAULT_SHOP_PHONE: str = "+91 98765 43210"

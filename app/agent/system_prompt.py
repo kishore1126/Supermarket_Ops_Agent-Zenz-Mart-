@@ -9,7 +9,7 @@ def build_system_prompt(preferences: dict[str, str] | None = None) -> str:
     if preferences:
         prefs.update(preferences)
 
-    shop_name = prefs.get("shop_name", "Maa Durga Kirana Store")
+    shop_name = prefs.get("shop_name", "Zenz Mart")
     shop_gstin = prefs.get("shop_gstin", "27AABCM1234F1Z8")
     default_payment = prefs.get("default_payment_method", "UPI")
     preferred_atta = prefs.get("preferred_atta_brand", "Aashirvaad Atta 5kg")

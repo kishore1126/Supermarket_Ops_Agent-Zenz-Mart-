@@ -9,7 +9,7 @@ import app.preferences.tools
 @pytest.mark.asyncio
 async def test_get_seeded_preferences(seeded_session):
     prefs = await service.get_all_preferences(seeded_session)
-    assert prefs["shop_name"] == "Maa Durga Kirana Store"
+    assert prefs["shop_name"] == "Zenz Mart"
     assert prefs["default_payment_method"] == "UPI"
     assert prefs["preferred_atta_brand"] == "Aashirvaad Atta 5kg"
 

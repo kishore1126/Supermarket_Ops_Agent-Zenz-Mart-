@@ -1,5 +1,6 @@
-"""ReportLab GST Tax Invoice PDF Generator."""
+"""ReportLab Modern Minimalist GST Invoice PDF Generator — Matching Zenz Mart Aesthetic."""
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from reportlab.lib import colors
@@ -19,13 +20,24 @@ from reportlab.platypus import (
 from app.config import settings
 
 
+# Design Palette (Geo/Zenz Modern Minimalist Aesthetic)
+CYAN_ACCENT = colors.HexColor("#00C2E8")
+CYAN_LIGHT = colors.HexColor("#F0FAFC")
+DARK_SLATE = colors.HexColor("#0F172A")
+MEDIUM_SLATE = colors.HexColor("#334155")
+LIGHT_MUTED = colors.HexColor("#64748B")
+BORDER_GREY = colors.HexColor("#E2E8F0")
+CARD_BG = colors.HexColor("#F8FAFC")
+WHITE = colors.HexColor("#FFFFFF")
+
+
 def generate_invoice_pdf(
     bill_data: dict,
     shop_info: dict | None = None,
     output_path: str | Path | None = None,
 ) -> str:
     """
-    Generate a professional Indian GST Tax Invoice PDF using ReportLab.
+    Generate a high-aesthetic, modern GST Tax Invoice PDF matching Zenz Mart style.
     
     bill_data: dict from preview_bill / finalize_bill containing items, taxes, round_off, total.
     shop_info: dict containing shop_name, shop_gstin, shop_address, shop_phone.
@@ -48,238 +60,394 @@ def generate_invoice_pdf(
     doc = SimpleDocTemplate(
         str(target_file),
         pagesize=A4,
-        leftMargin=15 * mm,
-        rightMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=15 * mm,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
     )
 
     styles = getSampleStyleSheet()
-    
-    # Custom Typography Styles
-    title_style = ParagraphStyle(
-        "ShopTitle",
+
+    # Typography
+    brand_style = ParagraphStyle(
+        "BrandTitle",
         parent=styles["Heading1"],
-        fontSize=16,
-        leading=20,
-        textColor=colors.HexColor("#1e293b"),
+        fontSize=20,
+        leading=24,
+        textColor=DARK_SLATE,
         fontName="Helvetica-Bold",
-        alignment=0,
     )
-    meta_style = ParagraphStyle(
-        "ShopMeta",
+    subtitle_style = ParagraphStyle(
+        "BrandSubtitle",
+        parent=styles["Normal"],
+        fontSize=7.5,
+        leading=10,
+        textColor=LIGHT_MUTED,
+        fontName="Helvetica",
+    )
+    meta_label = ParagraphStyle(
+        "MetaLabel",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=9,
+        textColor=CYAN_ACCENT,
+        fontName="Helvetica-Bold",
+    )
+    meta_val = ParagraphStyle(
+        "MetaVal",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=13,
+        textColor=DARK_SLATE,
+        fontName="Helvetica-Bold",
+    )
+    section_heading = ParagraphStyle(
+        "SectionHeading",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=11,
+        textColor=DARK_SLATE,
+        fontName="Helvetica-Bold",
+    )
+    qty_style = ParagraphStyle(
+        "QtyStyle",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        leading=12,
+        textColor=CYAN_ACCENT,
+        fontName="Helvetica-Bold",
+    )
+    item_desc_style = ParagraphStyle(
+        "ItemDescStyle",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+        textColor=DARK_SLATE,
+        fontName="Helvetica",
+    )
+    item_meta_style = ParagraphStyle(
+        "ItemMetaStyle",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=9,
+        textColor=LIGHT_MUTED,
+        fontName="Helvetica",
+    )
+    price_style = ParagraphStyle(
+        "PriceStyle",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        leading=12,
+        textColor=DARK_SLATE,
+        fontName="Helvetica-Bold",
+        alignment=2,
+    )
+    summary_label = ParagraphStyle(
+        "SummaryLabel",
         parent=styles["Normal"],
         fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor("#475569"),
+        leading=12,
+        textColor=LIGHT_MUTED,
         fontName="Helvetica",
     )
-    badge_style = ParagraphStyle(
-        "InvoiceBadge",
-        parent=styles["Heading2"],
-        fontSize=12,
-        leading=15,
-        textColor=colors.HexColor("#0f766e"),
-        fontName="Helvetica-Bold",
-        alignment=2,
-    )
-    cell_style = ParagraphStyle(
-        "TableCell",
-        parent=styles["Normal"],
-        fontSize=8,
-        leading=10,
-        fontName="Helvetica",
-    )
-    cell_bold = ParagraphStyle(
-        "TableCellBold",
-        parent=styles["Normal"],
-        fontSize=8,
-        leading=10,
-        fontName="Helvetica-Bold",
-    )
-    cell_right = ParagraphStyle(
-        "TableCellRight",
-        parent=styles["Normal"],
-        fontSize=8,
-        leading=10,
-        fontName="Helvetica",
-        alignment=2,
-    )
-    cell_right_bold = ParagraphStyle(
-        "TableCellRightBold",
+    summary_val = ParagraphStyle(
+        "SummaryVal",
         parent=styles["Normal"],
         fontSize=8.5,
-        leading=11,
+        leading=12,
+        textColor=DARK_SLATE,
         fontName="Helvetica-Bold",
         alignment=2,
+    )
+    total_label_style = ParagraphStyle(
+        "TotalLabel",
+        parent=styles["Normal"],
+        fontSize=13,
+        leading=16,
+        textColor=CYAN_ACCENT,
+        fontName="Helvetica-Bold",
+    )
+    total_val_style = ParagraphStyle(
+        "TotalVal",
+        parent=styles["Normal"],
+        fontSize=14,
+        leading=17,
+        textColor=CYAN_ACCENT,
+        fontName="Helvetica-Bold",
+        alignment=2,
+    )
+    thank_you_style = ParagraphStyle(
+        "ThankYou",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=11,
+        textColor=DARK_SLATE,
+        fontName="Helvetica-Bold",
+        alignment=1,
+    )
+    badge_btn_style = ParagraphStyle(
+        "BadgeBtn",
+        parent=styles["Normal"],
+        fontSize=8.5,
+        leading=10,
+        textColor=WHITE,
+        fontName="Helvetica-Bold",
+        alignment=1,
+    )
+    pill_text = ParagraphStyle(
+        "PillText",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=9,
+        textColor=LIGHT_MUTED,
+        fontName="Helvetica",
+        alignment=1,
     )
 
     elements = []
 
-    # 1. Header Section
-    header_data = [
-        [
-            Paragraph(f"<b>{shop['name']}</b>", title_style),
-            Paragraph("TAX INVOICE<br/><font size=8 color='#64748b'>Original for Recipient</font>", badge_style),
-        ],
-        [
-            Paragraph(
-                f"GSTIN: <b>{shop['gstin']}</b><br/>"
-                f"{shop['address']}<br/>"
-                f"Phone: {shop['phone']}",
-                meta_style,
-            ),
-            Paragraph(
-                f"<b>Invoice #:</b> INV-{bill_id:04d}<br/>"
-                f"<b>Date:</b> {bill_data.get('created_at', '')[:10]}<br/>"
-                f"<b>Payment:</b> {bill_data.get('payment_method', 'UPI')}<br/>"
-                f"<b>Status:</b> <font color='#059669'><b>{bill_data.get('status', 'FINALIZED')}</b></font>",
-                ParagraphStyle("InvMetaRight", parent=meta_style, alignment=2),
-            ),
-        ],
-    ]
-    header_table = Table(header_data, colWidths=[3.2 * inch, 3.8 * inch])
-    header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    # 1. Top Dual-Tone Accent Bar (Left 70% Cyan, Right 30% Dark Slate)
+    bar_data = [["", ""]]
+    bar_table = Table(bar_data, colWidths=[5.0 * inch, 2.0 * inch], rowHeights=[3.5])
+    bar_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), CYAN_ACCENT),
+        ("BACKGROUND", (1, 0), (1, 0), MEDIUM_SLATE),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
     ]))
-    elements.append(header_table)
-    elements.append(Spacer(1, 8))
+    elements.append(bar_table)
+    elements.append(Spacer(1, 14))
 
-    # Divider line
-    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cbd5e1"), spaceAfter=8))
+    # 2. Store Branding Header
+    elements.append(Paragraph(shop["name"].upper(), brand_style))
+    elements.append(Spacer(1, 2))
+    elements.append(Paragraph("MODERN GROCERY EXPERIENCE", subtitle_style))
+    elements.append(Spacer(1, 14))
 
-    # 2. Billed To Customer Section
-    cust_name = bill_data.get("customer_name") or "Walk-in Customer"
-    cust_phone = bill_data.get("customer_phone") or "—"
-    cust_info = [
-        [
-            Paragraph("<b>Billed To:</b>", cell_bold),
-            Paragraph(f"{cust_name} (Phone: {cust_phone})", cell_style),
-            Paragraph(f"<b>Place of Supply:</b> Intra-State (State Code: {shop['gstin'][:2]})", cell_right),
-        ]
+    # Parse date and time
+    created_at_str = bill_data.get("created_at", "")
+    try:
+        dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        date_display = dt.strftime("%b %d").upper()
+        time_display = dt.strftime("%H:%M")
+    except Exception:
+        date_display = datetime.now().strftime("%b %d").upper()
+        time_display = datetime.now().strftime("%H:%M")
+
+    # 3. Metadata 3-Cards (DATE, TIME, REGISTER/BILL#)
+    card1 = [
+        [Paragraph("DATE", meta_label)],
+        [Paragraph(date_display, meta_val)],
     ]
-    cust_table = Table(cust_info, colWidths=[1.0 * inch, 3.2 * inch, 2.8 * inch])
-    cust_table.setStyle(TableStyle([
+    card2 = [
+        [Paragraph("TIME", meta_label)],
+        [Paragraph(time_display, meta_val)],
+    ]
+    card3 = [
+        [Paragraph("REGISTER", meta_label)],
+        [Paragraph(f"#{bill_id:02d}" if bill_id < 100 else f"#{bill_id}", meta_val)],
+    ]
+
+    t1 = Table(card1, colWidths=[2.2 * inch])
+    t1.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
+        ("LINELEFT", (0, 0), (0, -1), 2.5, CYAN_ACCENT),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    t2 = Table(card2, colWidths=[2.2 * inch])
+    t2.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
+        ("LINELEFT", (0, 0), (0, -1), 2.5, CYAN_ACCENT),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    t3 = Table(card3, colWidths=[2.2 * inch])
+    t3.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
+        ("LINELEFT", (0, 0), (0, -1), 2.5, CYAN_ACCENT),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    meta_row = Table([[t1, t2, t3]], colWidths=[2.33 * inch, 2.33 * inch, 2.34 * inch])
+    meta_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(meta_row)
+    elements.append(Spacer(1, 16))
+
+    # 4. Items Section Heading
+    sec_data = [[
+        Paragraph("ITEMS", section_heading),
+        HRFlowable(width="100%", thickness=0.8, color=BORDER_GREY, spaceAfter=0)
+    ]]
+    sec_table = Table(sec_data, colWidths=[0.8 * inch, 6.2 * inch])
+    sec_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    elements.append(cust_table)
+    elements.append(sec_table)
     elements.append(Spacer(1, 6))
 
-    # 3. Line Items Table
-    # Columns: S.No | Description | HSN | Qty | Rate | Taxable (₹) | CGST (₹) | SGST (₹) | Total (₹)
-    table_data = [
-        [
-            Paragraph("<b>#</b>", cell_bold),
-            Paragraph("<b>Item Description</b>", cell_bold),
-            Paragraph("<b>HSN</b>", cell_bold),
-            Paragraph("<b>Qty</b>", cell_bold),
-            Paragraph("<b>Rate (₹)</b>", cell_right_bold),
-            Paragraph("<b>Taxable (₹)</b>", cell_right_bold),
-            Paragraph("<b>CGST (₹)</b>", cell_right_bold),
-            Paragraph("<b>SGST (₹)</b>", cell_right_bold),
-            Paragraph("<b>Total (₹)</b>", cell_right_bold),
-        ]
-    ]
+    # 5. Line Items Table
+    items = bill_data.get("items", [])
+    item_rows = []
+    for idx, item in enumerate(items):
+        q_val = item["quantity"]
+        q_str = f"{int(q_val)}" if q_val == int(q_val) else f"{q_val}"
+        
+        # Product name and optional GST details
+        p_name = item["product_name"]
+        gst_pct = int(item.get("gst_rate", 0) * 100)
+        hsn = item.get("hsn_code", "0000")
+        meta_sub = f"<font size=6.5 color='#94a3b8'>HSN {hsn} • GST {gst_pct}%</font>"
+        
+        desc_para = Paragraph(f"<b>{p_name}</b><br/>{meta_sub}", item_desc_style)
+        qty_para = Paragraph(q_str, qty_style)
+        price_para = Paragraph(f"₹{item.get('line_total', 0.0):.2f}", price_style)
+        
+        item_rows.append([qty_para, desc_para, price_para])
 
-    for idx, item in enumerate(bill_data.get("items", []), start=1):
-        table_data.append([
-            Paragraph(str(idx), cell_style),
-            Paragraph(f"<b>{item['product_name']}</b>", cell_style),
-            Paragraph(str(item.get("hsn_code", "0000")), cell_style),
-            Paragraph(f"{item['quantity']} {item.get('unit', '')}", cell_style),
-            Paragraph(f"{item['unit_price']:.2f}", cell_right),
-            Paragraph(f"{item.get('taxable_value', 0.0):.2f}", cell_right),
-            Paragraph(f"{item.get('cgst_amount', 0.0):.2f}<br/><font size=6 color='#64748b'>({int(item.get('gst_rate', 0)*50)}%)</font>", cell_right),
-            Paragraph(f"{item.get('sgst_amount', 0.0):.2f}<br/><font size=6 color='#64748b'>({int(item.get('gst_rate', 0)*50)}%)</font>", cell_right),
-            Paragraph(f"<b>{item.get('line_total', 0.0):.2f}</b>", cell_right),
-        ])
-
-    col_widths = [0.3 * inch, 2.1 * inch, 0.65 * inch, 0.75 * inch, 0.7 * inch, 0.75 * inch, 0.6 * inch, 0.6 * inch, 0.75 * inch]
-    items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    items_table = Table(item_rows, colWidths=[0.5 * inch, 5.2 * inch, 1.3 * inch])
     items_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
-        ("ALIGN", (0, 0), (3, -1), "LEFT"),
-        ("ALIGN", (4, 0), (-1, -1), "RIGHT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#F1F5F9")),
     ]))
     elements.append(items_table)
-    elements.append(Spacer(1, 8))
+    elements.append(Spacer(1, 14))
 
-    # 4. Summary & Round Off Box (Point 3)
+    # 6. Summary & Totals Box
     subtotal = bill_data.get("subtotal", 0.0)
-    cgst_total = bill_data.get("cgst", 0.0)
-    sgst_total = bill_data.get("sgst", 0.0)
+    cgst = bill_data.get("cgst", 0.0)
+    sgst = bill_data.get("sgst", 0.0)
+    total_tax = round(cgst + sgst, 2)
     round_off = bill_data.get("round_off", 0.0)
     final_total = bill_data.get("total", 0.0)
 
-    round_off_sign = f"+₹{round_off:.2f}" if round_off >= 0 else f"-₹{abs(round_off):.2f}"
+    round_sign = f"+₹{round_off:.2f}" if round_off >= 0 else f"-₹{abs(round_off):.2f}"
 
-    summary_data = [
+    summary_rows = [
         [
-            Paragraph("<b>Taxable Subtotal:</b>", cell_style),
-            Paragraph(f"₹{subtotal:.2f}", cell_right),
+            Paragraph("Subtotal", summary_label),
+            Paragraph(f"₹{subtotal:.2f}", summary_val),
         ],
         [
-            Paragraph("<b>Total Central GST (CGST):</b>", cell_style),
-            Paragraph(f"₹{cgst_total:.2f}", cell_right),
+            Paragraph("Tax (GST Breakup: CGST + SGST)", summary_label),
+            Paragraph(f"₹{total_tax:.2f}", summary_val),
         ],
         [
-            Paragraph("<b>Total State GST (SGST):</b>", cell_style),
-            Paragraph(f"₹{sgst_total:.2f}", cell_right),
+            Paragraph("Round Off Adjustment", summary_label),
+            Paragraph(round_sign, summary_val),
         ],
         [
-            Paragraph("<b>Round Off Adjustment:</b>", cell_style),
-            Paragraph(round_off_sign, cell_right),
+            HRFlowable(width="100%", thickness=1.5, color=CYAN_ACCENT, spaceAfter=2, spaceBefore=2),
+            HRFlowable(width="100%", thickness=1.5, color=CYAN_ACCENT, spaceAfter=2, spaceBefore=2),
         ],
         [
-            Paragraph("<b>Grand Total (Payable):</b>", ParagraphStyle("GrandTotalLabel", parent=cell_bold, fontSize=10, textColor=colors.HexColor("#0f766e"))),
-            Paragraph(f"<b>₹{final_total:.2f}</b>", ParagraphStyle("GrandTotalVal", parent=cell_right_bold, fontSize=11, textColor=colors.HexColor("#0f766e"))),
+            Paragraph("TOTAL", total_label_style),
+            Paragraph(f"₹{final_total:.2f}", total_val_style),
         ],
     ]
 
-    summary_table = Table(summary_data, colWidths=[2.2 * inch, 1.3 * inch])
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f0fdf4")),
-        ("LINEBELOW", (0, -1), (-1, -1), 1.5, colors.HexColor("#0f766e")),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#0f766e")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    summary_card = Table(summary_rows, colWidths=[5.2 * inch, 1.5 * inch])
+    summary_card.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    elements.append(KeepTogether([summary_card]))
+    elements.append(Spacer(1, 12))
+
+    # 7. Payment Info Block
+    pay_method = bill_data.get("payment_method", "UPI").upper()
+    pay_data = [
+        [
+            Paragraph("PAYMENT METHOD", ParagraphStyle("P1", parent=summary_label, fontSize=7.5)),
+            Paragraph(pay_method, ParagraphStyle("P2", parent=summary_val, fontSize=8.5, textColor=DARK_SLATE)),
+        ],
+        [
+            Paragraph("AMOUNT PAID", ParagraphStyle("P3", parent=summary_label, fontSize=7.5)),
+            Paragraph(f"₹{final_total:.2f}", ParagraphStyle("P4", parent=summary_val, fontSize=8.5, textColor=DARK_SLATE)),
+        ],
+    ]
+    pay_table = Table(pay_data, colWidths=[4.8 * inch, 1.9 * inch])
+    pay_table.setStyle(TableStyle([
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.6, BORDER_GREY),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.6, BORDER_GREY),
     ]))
+    elements.append(KeepTogether([pay_table]))
+    elements.append(Spacer(1, 20))
 
-    # Place summary on the right side
-    terms_text = Paragraph(
-        "<b>Terms & Conditions:</b><br/>"
-        "1. Goods once sold will not be taken back without bill.<br/>"
-        "2. All disputes subject to local jurisdiction.<br/>"
-        "<i>Thank you for supporting your local Kirana!</i>",
-        ParagraphStyle("Terms", parent=styles["Normal"], fontSize=7, leading=9, textColor=colors.HexColor("#64748b")),
-    )
+    # 8. Thank You Header
+    elements.append(Paragraph("THANK YOU FOR SHOPPING", thank_you_style))
+    elements.append(Spacer(1, 8))
 
-    bottom_block = Table(
-        [[terms_text, summary_table]],
-        colWidths=[3.5 * inch, 3.5 * inch]
-    )
-    bottom_block.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    # 9. Cyan Badge Button (ZENZ MART)
+    btn_data = [[Paragraph(shop["name"].upper(), badge_btn_style)]]
+    btn_table = Table(btn_data, colWidths=[1.8 * inch], rowHeights=[22])
+    btn_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CYAN_ACCENT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
     ]))
-    elements.append(KeepTogether([bottom_block]))
+    # Center the button table
+    center_btn = Table([[btn_table]], colWidths=[7.0 * inch])
+    center_btn.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2.6 * inch),
+    ]))
+    elements.append(center_btn)
     elements.append(Spacer(1, 14))
 
-    # 5. Signatory Block
-    sig_data = [
-        [
-            Paragraph(f"E. & O.E.", ParagraphStyle("Eoe", parent=styles["Normal"], fontSize=7, textColor=colors.HexColor("#94a3b8"))),
-            Paragraph(f"For <b>{shop['name']}</b><br/><br/><br/>Authorized Signatory", ParagraphStyle("Sign", parent=styles["Normal"], fontSize=8, alignment=2)),
-        ]
-    ]
-    sig_table = Table(sig_data, colWidths=[3.5 * inch, 3.5 * inch])
-    elements.append(sig_table)
+    # 10. Footer Pills (Returns, Store Hours, Contact)
+    p1 = Table([[Paragraph("Returns: 30 days", pill_text)]], colWidths=[2.1 * inch], rowHeights=[20])
+    p1.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    p2 = Table([[Paragraph("Store Hours: 8AM - 10PM", pill_text)]], colWidths=[2.2 * inch], rowHeights=[20])
+    p2.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    p3 = Table([[Paragraph(f"Contact: {shop['phone']}", pill_text)]], colWidths=[2.2 * inch], rowHeights=[20])
+    p3.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    pills_row = Table([[p1, p2, p3]], colWidths=[2.25 * inch, 2.35 * inch, 2.35 * inch])
+    pills_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+    elements.append(pills_row)
+    elements.append(Spacer(1, 10))
+
+    # Sub-footer tagline
+    tagline = Paragraph(
+        f"{shop['name'].upper()} • MODERN GROCERY EXPERIENCE • GSTIN: {shop['gstin']} • EST. 2026",
+        ParagraphStyle("SubFooter", parent=styles["Normal"], fontSize=6.5, textColor=LIGHT_MUTED, alignment=1),
+    )
+    elements.append(tagline)
 
     # Build PDF
     doc.build(elements)

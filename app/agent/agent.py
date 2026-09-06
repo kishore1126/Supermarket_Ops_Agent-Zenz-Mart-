@@ -178,7 +178,7 @@ class ClaudeAgent:
         msg = user_message.strip().lower()
 
         # 1. Add New Product / SKU ("new item: Amul Butter 100g, GST 12%, MRP ₹62")
-        if "new item" in msg or "new product" in msg or "add product" in msg or "add item" in msg and ("mrp" in msg or "gst" in msg or "cost" in msg):
+        if ("new item" in msg or "new product" in msg or "add product" in msg or "add item" in msg) and any(k in msg for k in ["mrp", "gst", "%", "cost", "rs", "₹"]):
             mrp_match = re.search(r"mrp\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
             gst_match = re.search(r"gst\s*(\d+(?:\.\d+)?)\s*%", msg)
             cost_match = re.search(r"cost\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
@@ -189,7 +189,6 @@ class ClaudeAgent:
             cost = float(cost_match.group(1)) if cost_match else round(mrp * 0.85, 2)
             selling = mrp
 
-            # Extract product name cleanly
             clean_name_text = re.sub(r"^(?:new\s+item|new\s+product|add\s+product|add\s+item)[:\s]*", "", user_message.strip(), flags=re.IGNORECASE)
             clean_name = clean_name_text.split(",")[0].strip()
             if not clean_name:
@@ -216,7 +215,6 @@ class ClaudeAgent:
                 },
             )
             if "error" in res:
-                # If product already exists, update its stock/mrp via receive_stock
                 if "already exists" in res["error"].lower():
                     rcv = await registry.execute(
                         "receive_stock",
@@ -234,7 +232,7 @@ class ClaudeAgent:
                      f"• Initial Stock: *{res['stock_qty']} {res['unit']}*"
             )
 
-        # 2. Ambiguity Handling ("add atta" or bare product query)
+        # 2. Ambiguity Handling ("add atta" or bare ambiguous product query)
         if msg.strip() in ["add atta", "atta", "need atta", "get atta", "butter", "oil", "sugar", "rice", "dal"]:
             keyword = msg.replace("add", "").replace("need", "").replace("get", "").strip()
             stock_res = await registry.execute("check_stock", session, {"query": keyword})
@@ -251,14 +249,36 @@ class ClaudeAgent:
                     text=f"📦 *{p['name']}*: ₹{p['selling_price']:.2f} (Stock: {p['stock_qty']} {p['unit']}, GST {int(p['gst_rate']*100)}%). How many would you like to bill or receive?"
                 )
 
-        # 3. Receive Stock ("50 packets of Maggi came in, cost ₹12, MRP ₹14")
+        # 3. Product Selection from Ambiguity or Direct Item Addition ("Aashirvaad Atta 5kg — ₹245" / "add Aashirvaad Atta 5kg")
+        if any(p_name in msg for p_name in ["aashirvaad", "loose wheat atta", "loose sugar", "maggi 70g", "amul butter", "tata salt", "fortune sunflower"]) and ("make a bill" not in msg and "came in" not in msg):
+            qty_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:packets?|kg|pk|pouches?|pieces?)?", msg)
+            qty = float(qty_match.group(1)) if (qty_match and float(qty_match.group(1)) > 0) else 1.0
+
+            target_p = "Aashirvaad Atta 5kg"
+            if "loose" in msg and "atta" in msg: target_p = "Loose Wheat Atta"
+            elif "sugar" in msg: target_p = "Loose Sugar"
+            elif "butter" in msg: target_p = "Amul Butter 100g"
+            elif "salt" in msg: target_p = "Tata Salt 1kg"
+            elif "maggi" in msg: target_p = "Maggi 70g"
+            elif "oil" in msg: target_p = "Fortune Sunflower Oil 1L"
+
+            res = await registry.execute("start_or_update_bill", session, {"items": [{"product_name": target_p, "quantity": qty}]})
+            if "error" not in res:
+                receipt = format_bill_receipt(res)
+                warning_text = ""
+                if res.get("warnings"):
+                    warning_text = "\n\n" + "\n".join(res["warnings"]) + "\n*(Item added to draft, but you must adjust quantity before finalizing)*"
+                return AgentResponse(text=f"🧾 *Item Added to Bill Draft*\n\n{receipt}{warning_text}", active_bill_id=res["bill_id"], action_type="bill_preview")
+
+        # 4. Receive Stock ("50 packets of Maggi came in, cost ₹12, MRP ₹14")
         if "came in" in msg or "received" in msg or "delivery" in msg or "stock in" in msg:
-            qty_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:packets?|kg|litres?|pouches?|pieces?|box)?", msg)
+            qty_match = re.search(r"(\d+(?:\.\d+)?)", msg)
             cost_match = re.search(r"cost\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
             mrp_match = re.search(r"mrp\s*(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)", msg)
             
             p_name = "Maggi 70g"
-            if "atta" in msg: p_name = "Aashirvaad Atta 5kg"
+            if "atta" in msg:
+                p_name = "Loose Wheat Atta" if "loose" in msg else "Aashirvaad Atta 5kg"
             elif "salt" in msg: p_name = "Tata Salt 1kg"
             elif "butter" in msg: p_name = "Amul Butter 100g"
             elif "oil" in msg: p_name = "Fortune Sunflower Oil 1L"
@@ -278,7 +298,7 @@ class ClaudeAgent:
                 return AgentResponse(text=f"⚠️ {res['error']}")
             return AgentResponse(text=f"📦 *Stock Updated Successfully*\n\n{res['message']}\n• Current Stock: *{res['current_stock']} {res['unit']}*")
 
-        # 4. Stock Query & Low Stock Warning
+        # 5. Stock Query & Low Stock Warning
         if "running out" in msg or "low stock" in msg or "reorder" in msg:
             res = await registry.execute("get_low_stock", session, {})
             items = res.get("low_stock_items", [])
@@ -315,28 +335,36 @@ class ClaudeAgent:
             lines.append("```")
             return AgentResponse(text="\n".join(lines))
 
-        # 5. Bill Creation (with Stock Warnings)
-        if ("make a bill" in msg or "cut a bill" in msg or "new bill" in msg or "bill:" in msg) and ("sugar" in msg or "maggi" in msg or "atta" in msg or "butter" in msg or "salt" in msg or "oil" in msg):
+        # 6. Bill Creation / Parsing
+        if ("make a bill" in msg or "cut a bill" in msg or "create a bill" in msg or "new bill" in msg or "bill:" in msg):
             items = []
             if "sugar" in msg:
-                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:kg)?\s*sugar", msg)
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:kg|packets?|pk)?(?:\s+of)?\s*sugar", msg)
                 items.append({"product_name": "Loose Sugar", "quantity": float(m.group(1)) if m else 2.0})
             if "atta" in msg:
-                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:kg|packets?|pk)?\s*(?:aashirvaad\s*)?atta", msg)
-                # If quantity specified as 50kg or loose
-                if "loose" in msg or "kg" in msg and float(m.group(1)) > 10:
-                    items.append({"product_name": "Loose Wheat Atta", "quantity": float(m.group(1)) if m else 50.0})
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:kg|packets?|pk)?(?:\s+of)?\s*(?:aashirvaad\s*)?atta", msg)
+                q = float(m.group(1)) if m else 1.0
+                if "loose" in msg or ("kg" in msg and "aashirvaad" not in msg and q > 10):
+                    items.append({"product_name": "Loose Wheat Atta", "quantity": q})
                 else:
-                    items.append({"product_name": "Aashirvaad Atta 5kg", "quantity": float(m.group(1)) if m else 1.0})
+                    items.append({"product_name": "Aashirvaad Atta 5kg", "quantity": q})
             if "maggi" in msg:
-                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*maggi", msg)
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:packet|pk|packets?)?(?:\s+of)?\s*maggi", msg)
                 items.append({"product_name": "Maggi 70g", "quantity": float(m.group(1)) if m else 4.0})
             if "butter" in msg:
-                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*(?:amul\s*)?butter", msg)
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:packet|pk|packets?)?(?:\s+of)?\s*(?:amul\s*)?butter", msg)
                 items.append({"product_name": "Amul Butter 100g", "quantity": float(m.group(1)) if m else 1.0})
             if "salt" in msg:
-                m = re.search(r"(\d+)\s*(?:packet|pk)?\s*(?:tata\s*)?salt", msg)
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:packet|pk|packets?)?(?:\s+of)?\s*(?:tata\s*)?salt", msg)
                 items.append({"product_name": "Tata Salt 1kg", "quantity": float(m.group(1)) if m else 1.0})
+            if "oil" in msg:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*(?:pouch|pouches|litre|l)?(?:\s+of)?\s*(?:fortune\s*)?oil", msg)
+                items.append({"product_name": "Fortune Sunflower Oil 1L", "quantity": float(m.group(1)) if m else 1.0})
+
+            if not items:
+                return AgentResponse(
+                    text="🧾 *New Bill Draft Started*\n\nWhich items would you like to add to this bill?\nExample: `2kg sugar, 1 Aashirvaad atta 5kg, 4 Maggi, UPI`"
+                )
 
             pay_mode = "Cash" if "cash" in msg else ("Card" if "card" in msg else ("Khata" if "khata" in msg else "UPI"))
             
@@ -351,7 +379,7 @@ class ClaudeAgent:
 
             return AgentResponse(text=receipt + warning_text, active_bill_id=res["bill_id"], action_type="bill_preview")
 
-        # 6. Bill Edit ("drop the butter, make it 6 Maggi")
+        # 7. Bill Edit ("drop the butter, make it 6 Maggi")
         if "drop" in msg or "remove" in msg or "make it" in msg or "change" in msg:
             items = []
             if "butter" in msg and ("drop" in msg or "remove" in msg or "cancel" in msg):
@@ -370,8 +398,8 @@ class ClaudeAgent:
             receipt = format_bill_receipt(res)
             return AgentResponse(text=f"✏️ *Bill Updated*\n\n{receipt}", active_bill_id=res["bill_id"], action_type="bill_preview")
 
-        # 7. Finalize Bill
-        if "confirm" in msg or "finalize" in msg or "close bill" in msg:
+        # 8. Finalize Bill
+        if msg in ["yes", "confirm", "finalize", "ok", "done", "close bill"] or "confirm" in msg or "finalize" in msg:
             res = await registry.execute("finalize_bill", session, {})
             if "error" in res:
                 return AgentResponse(text=f"⚠️ {res['error']}")
@@ -380,12 +408,11 @@ class ClaudeAgent:
             receipt = format_bill_receipt(prev)
             return AgentResponse(text=f"✅ *Bill Finalized & Stock Decremented*\n\n{receipt}", active_bill_id=res.get("bill_id"), action_type="bill_finalized")
 
-        # 8. PDF Invoice Generation ("first invoice" vs "previous invoice" vs "bill #2")
+        # 9. PDF Invoice Generation ("first invoice" vs "previous invoice" vs "bill #2")
         if "pdf" in msg or "invoice" in msg:
             order = "last"
             bill_id = None
 
-            # Check explicit bill number e.g. "bill #1", "bill 2"
             b_match = re.search(r"bill\s*#?\s*(\d+)", msg)
             if b_match:
                 bill_id = int(b_match.group(1))
@@ -411,7 +438,7 @@ class ClaudeAgent:
                 artifacts=artifacts_collected,
             )
 
-        # 9. PPTX Presentation Deck
+        # 10. PPTX Presentation Deck
         if "deck" in msg or "pptx" in msg or "powerpoint" in msg or "presentation" in msg or "weekly analysis" in msg:
             res = await registry.execute("generate_analysis_deck", session, {"days": 7})
             if "error" in res:
@@ -427,7 +454,7 @@ class ClaudeAgent:
                 artifacts=artifacts_collected,
             )
 
-        # 10. Khata (Credit / Payment / Balance)
+        # 11. Khata (Credit / Payment / Balance)
         if "credit" in msg or "khata" in msg or "paid" in msg or "balance" in msg:
             if "paid" in msg or "settle" in msg:
                 m_amt = re.search(r"(\d+(?:\.\d+)?)", msg)
@@ -467,14 +494,14 @@ class ClaudeAgent:
                 lines.append("```")
                 return AgentResponse(text="\n".join(lines))
 
-        # 11. Daily Close
+        # 12. Daily Close
         if "close" in msg or "today's sales" in msg or "daily close" in msg or "day summary" in msg:
             res = await registry.execute("get_daily_close", session, {})
             if "error" in res:
                 return AgentResponse(text=f"⚠️ {res['error']}")
             return AgentResponse(text=format_daily_close_message(res))
 
-        # 12. Preferences
+        # 13. Preferences
         if "assume" in msg or "preference" in msg or "default" in msg:
             if "upi" in msg:
                 await registry.execute("set_preference", session, {"key": "default_payment_method", "value": "UPI"})
@@ -483,7 +510,7 @@ class ClaudeAgent:
                 await registry.execute("set_preference", session, {"key": "default_payment_method", "value": "Cash"})
                 return AgentResponse(text="⚙️ *Preference Saved*\n\nI will now default to *Cash* for all bills unless specified otherwise (persists across chats).")
 
-        # 13. Dynamic Product Search Fallback
+        # 14. Dynamic Product Search Fallback
         search_res = await registry.execute("check_stock", session, {"query": user_message.strip()})
         prods = search_res.get("products", [])
         if prods:
@@ -501,3 +528,4 @@ class ClaudeAgent:
 
 # Global Agent Singleton
 agent = ClaudeAgent()
+

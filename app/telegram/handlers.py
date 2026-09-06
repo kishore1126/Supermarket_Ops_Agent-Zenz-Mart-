@@ -29,7 +29,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     async with get_db_session() as session:
         prefs = await pref_service.get_all_preferences(session)
-        shop_name = prefs.get("shop_name", "Maa Durga Kirana Store")
+        shop_name = prefs.get("shop_name", "Zenz Mart")
 
     text = (
         f"🙏 *Namaste! Welcome to {shop_name} Ops Agent.*\n\n"
@@ -81,7 +81,7 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     async with get_db_session() as session:
         prefs = await pref_service.get_all_preferences(session)
-        shop_name = prefs.get("shop_name", "Maa Durga Kirana Store")
+        shop_name = prefs.get("shop_name", "Zenz Mart")
 
     text = (
         f"🔄 *Conversation reset for {shop_name}.*\n\n"
