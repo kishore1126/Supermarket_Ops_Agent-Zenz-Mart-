@@ -38,14 +38,20 @@ async def startup():
 import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from app.core.keep_alive import start_keep_alive_if_configured
 
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.send_header("Content-type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Zenz Mart Supermarket Ops Agent is healthy and running!\n")
+        self.wfile.write(b'{"status":"ok","service":"Zenz Mart Supermarket Ops Agent","bot":"online"}\n')
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.end_headers()
 
     def log_message(self, format, *args):
         # Suppress access logs to keep bot terminal clean
@@ -74,8 +80,11 @@ def main():
     print(f"🧾 GSTIN: {settings.DEFAULT_SHOP_GSTIN}")
     print("=" * 60)
 
-    # Start health server for cloud platforms (Hugging Face / Render / Koyeb)
+    # Start health server for cloud platforms (Render / Koyeb / Hugging Face)
     start_health_server_if_needed()
+
+    # Start automatic self-ping keep-alive loop to prevent Render sleeping
+    start_keep_alive_if_configured()
 
     # Run database initialization
     asyncio.run(startup())
