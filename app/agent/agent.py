@@ -166,6 +166,19 @@ class ClaudeAgent:
             action_type=action_type,
         )
 
+    def _extract_payment_method(self, text: str) -> str | None:
+        """Extract user-specified payment method from natural language text."""
+        t = text.lower()
+        if "cash" in t:
+            return "Cash"
+        if "card" in t or "debit" in t or "credit card" in t:
+            return "Card"
+        if "khata" in t or "udhar" in t or "credit" in t:
+            return "Khata"
+        if "upi" in t or "gpay" in t or "phonepe" in t or "paytm" in t or "qr" in t or "online" in t:
+            return "UPI"
+        return None
+
     def _parse_items_from_text(self, msg: str) -> list[dict]:
         """Extract product names and quantities from natural language text."""
         import re
@@ -440,9 +453,12 @@ class ClaudeAgent:
                     text="🧾 *New Bill Draft Started*\n\nWhich items would you like to add to this bill?\nExample: `2kg sugar, 1 Aashirvaad atta 5kg, 4 Maggi, UPI`"
                 )
 
-            pay_mode = "Cash" if "cash" in msg else ("Card" if "card" in msg else ("Khata" if "khata" in msg else "UPI"))
+            pay_mode = self._extract_payment_method(msg)
+            bill_args = {"items": extracted_items}
+            if pay_mode:
+                bill_args["payment_method"] = pay_mode
             
-            res = await registry.execute("start_or_update_bill", session, {"items": extracted_items, "payment_method": pay_mode})
+            res = await registry.execute("start_or_update_bill", session, bill_args)
             if "error" in res:
                 return AgentResponse(text=f"⚠️ {res['error']}")
             
@@ -456,21 +472,36 @@ class ClaudeAgent:
 
             return AgentResponse(text=full_text, active_bill_id=res["bill_id"], action_type="bill_preview")
 
-        # 8. Finalize Bill
-        if msg in ["yes", "confirm", "finalize", "ok", "done", "close bill"] or "confirm" in msg or "finalize" in msg:
-            res = await registry.execute("finalize_bill", session, {})
+        # 7. Cart / Bill Preview Query
+        if "show bill" in msg or "current bill" in msg or "view cart" in msg or "show cart" in msg or msg == "bill":
+            pay_mode = self._extract_payment_method(msg)
+            if pay_mode:
+                draft_bill = await billing_service.get_latest_draft_bill(session)
+                if draft_bill:
+                    draft_bill.payment_method = pay_mode.upper()
+                    await session.commit()
+            res = await registry.execute("preview_bill", session, {})
             if "error" in res:
                 return AgentResponse(text=f"⚠️ {res['error']}")
-            
-            prev = await registry.execute("preview_bill", session, {"bill_id": res.get("bill_id")})
-            receipt = format_bill_receipt(prev)
-            return AgentResponse(text=f"✅ *Bill Finalized & Stock Decremented*\n\n{receipt}", active_bill_id=res.get("bill_id"), action_type="bill_finalized")
+            receipt = format_bill_receipt(res)
+            return AgentResponse(text=f"🧾 *Active Bill Preview*\n\n{receipt}", active_bill_id=res.get("bill_id"), action_type="bill_preview")
 
-        # 9. PDF Invoice Generation ("first invoice" vs "previous invoice" vs "bill #2")
-        if "pdf" in msg or "invoice" in msg:
+        # 8. Combined Finalize & Invoice / Checkout Handling
+        pay_mode = self._extract_payment_method(msg)
+        is_finalize_intent = (
+            msg in ["yes", "confirm", "finalize", "ok", "done", "close bill", "checkout", "finish", "complete"]
+            or "confirm" in msg
+            or "finalize" in msg
+            or "complete" in msg
+            or "checkout" in msg
+            or "finish" in msg
+            or "close bill" in msg
+        )
+        is_invoice_intent = ("pdf" in msg or "invoice" in msg)
+
+        if is_finalize_intent or is_invoice_intent:
             order = "last"
             bill_id = None
-
             b_match = re.search(r"bill\s*#?\s*(\d+)", msg)
             if b_match:
                 bill_id = int(b_match.group(1))
@@ -480,21 +511,60 @@ class ClaudeAgent:
             elif "previous" in msg or "last" in msg or "latest" in msg or "recent" in msg:
                 order = "last"
 
-            res = await registry.execute("generate_invoice_pdf", session, {"bill_id": bill_id, "order": order})
-            if "error" in res:
-                return AgentResponse(text=f"⚠️ {res['error']}")
-            
-            artifacts_collected.append({
-                "type": "pdf",
-                "path": res["file_path"],
-                "name": res["file_name"],
-            })
-            b_id = res.get("bill_id", 1)
-            b_date = res.get("created_at", "")
-            return AgentResponse(
-                text=f"📄 *GST Tax Invoice Generated*\n\nHere is **Bill #{b_id:04d}** (dated {b_date}) for ₹{res.get('total', 0.0):.2f}. The official PDF invoice is attached below.",
-                artifacts=artifacts_collected,
-            )
+            # 1. Finalize draft bill if requested or if generating invoice for active bill
+            finalized_res = None
+            if is_finalize_intent:
+                fin_args = {}
+                if pay_mode:
+                    fin_args["payment_method"] = pay_mode
+                if bill_id:
+                    fin_args["bill_id"] = bill_id
+                finalized_res = await registry.execute("finalize_bill", session, fin_args)
+                # If error is because already finalized or no active draft, update payment method on existing bill if specified
+                if "error" in finalized_res:
+                    latest_bill = await billing_service.get_bill_by_selector(session, bill_id=bill_id, order=order)
+                    if latest_bill and pay_mode:
+                        latest_bill.payment_method = pay_mode.strip().upper()
+                        await session.commit()
+                    if not is_invoice_intent:
+                        # Only report error if user strictly wanted to finalize without PDF
+                        if "already finalized" not in finalized_res["error"].lower():
+                            return AgentResponse(text=f"⚠️ {finalized_res['error']}")
+
+            # 2. Generate PDF Invoice if requested
+            if is_invoice_intent:
+                inv_args = {"bill_id": bill_id, "order": order}
+                if pay_mode:
+                    inv_args["payment_method"] = pay_mode
+                
+                res = await registry.execute("generate_invoice_pdf", session, inv_args)
+                if "error" in res:
+                    return AgentResponse(text=f"⚠️ {res['error']}")
+                
+                artifacts_collected.append({
+                    "type": "pdf",
+                    "path": res["file_path"],
+                    "name": res["file_name"],
+                })
+                b_id = res.get("bill_id", 1)
+                b_date = res.get("created_at", "")
+                actual_pm = res.get("payment_method") or (pay_mode.upper() if pay_mode else "UPI")
+                return AgentResponse(
+                    text=f"📄 *GST Tax Invoice Generated*\n\nHere is **Bill #{b_id:04d}** (dated {b_date}) for ₹{res.get('total', 0.0):.2f} (Payment: *{actual_pm}*). The official PDF invoice is attached below.",
+                    artifacts=artifacts_collected,
+                    active_bill_id=b_id,
+                    action_type="bill_finalized" if is_finalize_intent else "invoice_pdf",
+                )
+
+            # 3. If only finalizing (no PDF requested)
+            if finalized_res and "error" not in finalized_res:
+                prev = await registry.execute("preview_bill", session, {"bill_id": finalized_res.get("bill_id")})
+                receipt = format_bill_receipt(prev)
+                return AgentResponse(
+                    text=f"✅ *Bill Finalized & Stock Decremented*\n\n{receipt}",
+                    active_bill_id=finalized_res.get("bill_id"),
+                    action_type="bill_finalized"
+                )
 
         # 10. PPTX Presentation Deck
         if "deck" in msg or "pptx" in msg or "powerpoint" in msg or "presentation" in msg or "weekly analysis" in msg:

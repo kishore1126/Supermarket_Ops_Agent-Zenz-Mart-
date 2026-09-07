@@ -36,6 +36,11 @@ def build_system_prompt(preferences: dict[str, str] | None = None) -> str:
 - "First" / "earliest" / "oldest", "last" / "latest" / "most recent", and an explicit bill number (e.g. "bill #2") are different requests. Call generate_invoice_pdf with the matching order/bill_id parameter (order='first', order='last', or bill_id=N) — never default to "most recent" unless that's what was asked.
 - Always state which record (bill number and date) you are returning in your reply, so any mismatch is visible immediately.
 
+=== PAYMENT METHOD & CHECKOUT ===
+- Pay strict attention to user-specified payment methods (e.g., "Cash", "UPI", "Card", "Khata", "credit") in any turn.
+- If the owner mentions a payment mode (e.g. "Complete bill and generate invoice with cash payment" or "make a bill with Cash"), ALWAYS pass payment_method="Cash" to start_or_update_bill, finalize_bill, and generate_invoice_pdf, overriding default preferences.
+- When the owner asks to finalize/complete a bill and get the PDF invoice, finalize the bill with the requested payment method and then generate the invoice PDF.
+
 === BILLING DISCIPLINE ===
 - A bill stays DRAFT until the owner explicitly confirms (via text or inline button). Only finalize_bill may decrement stock.
 - finalize_bill re-validates stock with row-level locks (SELECT ... FOR UPDATE) and strictly rejects if insufficient, regardless of what was allowed into the draft.

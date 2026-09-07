@@ -25,6 +25,10 @@ class GenerateInvoicePdfInput(BaseModel):
         "last",
         description="Selector order: 'first' (or earliest/oldest), 'last' (or latest/most recent/previous), or 'specific' if a bill_id is provided.",
     )
+    payment_method: str | None = Field(
+        None,
+        description="Optional payment method ('Cash', 'UPI', 'Card', 'Khata') to apply/update on the bill before rendering invoice.",
+    )
 
 
 class GenerateAnalysisDeckInput(BaseModel):
@@ -43,12 +47,17 @@ async def generate_invoice_pdf_tool(
     session: AsyncSession,
     bill_id: int | None = None,
     order: str = "last",
+    payment_method: str | None = None,
     **kwargs,
 ) -> dict:
     try:
         bill = await billing_service.get_bill_by_selector(session, bill_id=bill_id, order=order)
         if not bill:
             return {"error": f"Could not find any bill matching selector order='{order}', bill_id={bill_id}."}
+
+        if payment_method:
+            bill.payment_method = payment_method.strip().upper()
+            await session.commit()
 
         bill_data = await billing_service.preview_bill(session, bill_id=bill.id)
         if "error" in bill_data:
@@ -69,6 +78,7 @@ async def generate_invoice_pdf_tool(
             "file_path": pdf_path,
             "file_name": Path(pdf_path).name,
             "total": bill_data["total"],
+            "payment_method": bill.payment_method,
             "created_at": date_str,
             "message": f"Generated GST Tax Invoice PDF for Bill #{bill_data['bill_id']} dated {date_str} ({Path(pdf_path).name})."
         }

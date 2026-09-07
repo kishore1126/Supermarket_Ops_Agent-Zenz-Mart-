@@ -127,3 +127,35 @@ async def test_issue_3_draft_oversell_warning_and_finalize_hard_block(seeded_ses
         )
     assert "Aashirvaad Atta 5kg" in str(exc_info.value)
 
+
+@pytest.mark.asyncio
+async def test_payment_method_respected_on_complete_and_invoice(seeded_session):
+    """
+    Test that when user says 'Complete bill and generate invoice with cash payment',
+    the bill is finalized with payment_method='CASH' and the PDF invoice specifies CASH.
+    """
+    # 1. Add items to bill draft
+    add_resp = await agent._execute_grounded_fallback(
+        user_message="add 1kg sugar and 2 maggi",
+        session=seeded_session,
+        artifacts_collected=[],
+    )
+    assert add_resp.active_bill_id is not None
+    assert "Sugar" in add_resp.text
+
+    # 2. Checkout with cash payment
+    checkout_resp = await agent._execute_grounded_fallback(
+        user_message="Complete bill and generate invoice with cash payment",
+        session=seeded_session,
+        artifacts_collected=[],
+    )
+    assert "CASH" in checkout_resp.text
+    assert len(checkout_resp.artifacts) == 1
+    assert checkout_resp.artifacts[0]["type"] == "pdf"
+
+    # Verify bill status and payment method in DB
+    bill_data = await billing_service.preview_bill(seeded_session, bill_id=add_resp.active_bill_id)
+    assert bill_data["status"] == "FINALIZED"
+    assert bill_data["payment_method"] == "CASH"
+
+
