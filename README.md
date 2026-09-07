@@ -17,6 +17,8 @@ This project implements an autonomous conversational operations agent for Indian
 
 **No web dashboard, no admin panel, no forms.** The conversational Telegram interface *is* the product.
 
+**Try the live bot:** [@OPS_Agentic_bot](https://t.me/OPS_Agentic_bot)
+
 ---
 
 ## 1. Agent Harness & Architectural Choices
